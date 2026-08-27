@@ -254,10 +254,13 @@ latest_successful_push_sha() {
 
 authenticated_fetch_and_verify() {
   set_step fetching_git
+  local repository_url auth_basic
+  repository_url="https://github.com/${GITHUB_REPOSITORY}.git"
+  auth_basic="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\r\n')"
   GIT_CONFIG_COUNT=1 \
   GIT_CONFIG_KEY_0=http.extraheader \
-  GIT_CONFIG_VALUE_0="Authorization: Bearer ${GITHUB_TOKEN}" \
-    git -C "$APP_DIR" fetch --prune origin \
+  GIT_CONFIG_VALUE_0="Authorization: Basic ${auth_basic}" \
+    git -C "$APP_DIR" fetch --prune "$repository_url" \
       "refs/heads/${DEPLOY_BRANCH}:refs/remotes/origin/${DEPLOY_BRANCH}"
 
   set_step verifying_branch_reachability
