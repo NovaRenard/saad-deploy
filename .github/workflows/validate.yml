@@ -1,0 +1,13 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install --yes shellcheck
+      - run: tests/check.sh

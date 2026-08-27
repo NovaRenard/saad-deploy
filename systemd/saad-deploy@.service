@@ -1,0 +1,13 @@
+[Unit]
+Description=SAAD Deploy poller for %i
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Environment=SAAD_DEPLOY_CONFIG_DIR=/etc/saad-deploy
+EnvironmentFile=/etc/saad-deploy/%i.env
+ExecStart=/opt/saad-deploy/bin/poll-deploy.sh %i
+TimeoutStartSec=30min
+Nice=10
