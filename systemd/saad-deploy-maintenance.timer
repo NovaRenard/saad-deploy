@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly SAAD Deploy image and build-cache maintenance
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+RandomizedDelaySec=2h
+Persistent=true
+Unit=saad-deploy-maintenance.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Prune stale SAAD Deploy images and Docker build cache
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/saad-deploy/bin/prune-docker.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h
