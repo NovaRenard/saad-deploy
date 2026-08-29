@@ -175,6 +175,7 @@ write_status() {
     printf '  "current_sha": %s,\n' "$(json_string_or_null "$CURRENT_SHA")"
     printf '  "previous_sha": %s,\n' "$(json_string_or_null "$PREVIOUS_SHA")"
     printf '  "target_sha": %s,\n' "$(json_string_or_null "${TARGET_SHA:-}")"
+    printf '  "source": %s,\n' "$(json_string_or_null "${DEPLOY_SOURCE:-automated}")"
     printf '  "started_at": %s,\n' "$(json_string_or_null "${STARTED_AT:-}")"
     printf '  "finished_at": %s,\n' "$(json_string_or_null "$finished_at")"
     printf '  "duration_seconds": %s,\n' "$duration"
@@ -413,6 +414,7 @@ commit_successful_state() {
   atomic_write "$STATE_DIR/current-sha" "$TARGET_SHA"
   PREVIOUS_SHA="$old_current"
   CURRENT_SHA="$TARGET_SHA"
+  rm -f "$STATE_DIR/last-error.log"
   write_status healthy complete "$(now_utc)" ""
 }
 

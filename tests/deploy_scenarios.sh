@@ -103,6 +103,20 @@ run_poll() {
     bash "$PROJECT_ROOT/bin/poll-deploy.sh" sample
 }
 
+run_rollback() {
+  local scenario="$1"
+  SCENARIO="$scenario" CALL_LOG="$FIXTURE/calls.log" \
+    PATH="$MOCK_DIR:$PATH" SAAD_DEPLOY_CONFIG_DIR="$CONFIG_DIR" \
+    bash "$PROJECT_ROOT/bin/rollback.sh" sample
+}
+
+run_restart() {
+  local scenario="$1"
+  SCENARIO="$scenario" CALL_LOG="$FIXTURE/calls.log" \
+    PATH="$MOCK_DIR:$PATH" SAAD_DEPLOY_CONFIG_DIR="$CONFIG_DIR" \
+    bash "$PROJECT_ROOT/bin/restart.sh" sample
+}
+
 read_status() {
   STATUS_CONTENT="$(<"$STATE_DIR/status.json")"
 }
@@ -176,8 +190,29 @@ test_successful_deployment() {
   assert_equals "$OLD_SHA" "$(<"$STATE_DIR/previous-sha")"
   assert_contains "$STATUS_CONTENT" '"status": "healthy"'
   assert_contains "$STATUS_CONTENT" '"step": "complete"'
+  assert_contains "$STATUS_CONTENT" '"source": "automated"'
   assert_contains "$(<"$FIXTURE/calls.log")" 'build web worker'
   assert_contains "$(<"$FIXTURE/calls.log")" 'run --rm --no-deps migrate'
+}
+
+test_rollback_records_rollback_source() {
+  make_fixture rollback
+  printf '%s\n' "$TARGET_SHA" >"$STATE_DIR/current-sha"
+  printf '%s\n' "$OLD_SHA" >"$STATE_DIR/previous-sha"
+  run_rollback success
+  read_status
+  assert_equals "$OLD_SHA" "$(<"$STATE_DIR/current-sha")"
+  assert_equals "$TARGET_SHA" "$(<"$STATE_DIR/previous-sha")"
+  assert_contains "$STATUS_CONTENT" '"source": "rollback"'
+}
+
+test_restart_does_not_write_deployment_status() {
+  make_fixture restart
+  printf '%s\n' "$TARGET_SHA" >"$STATE_DIR/current-sha"
+  printf '%s\n' '{"status":"healthy","step":"complete"}' >"$STATE_DIR/status.json"
+  run_restart success
+  assert_equals '{"status":"healthy","step":"complete"}' "$(<"$STATE_DIR/status.json")"
+  assert_contains "$(<"$FIXTURE/calls.log")" 'restart web worker'
 }
 
 test_state_writes_are_atomic() {
@@ -222,4 +257,6 @@ run_case test_failed_migration_preserves_current_sha
 run_case test_failed_healthcheck_preserves_current_sha
 run_case test_successful_deployment
 run_case test_state_writes_are_atomic
+run_case test_rollback_records_rollback_source
+run_case test_restart_does_not_write_deployment_status
 printf 'All deployment scenario tests passed.\n'

@@ -13,7 +13,7 @@ main() {
   read_state
   [[ -n "$PREVIOUS_SHA" ]] || die "no previous SHA is available for rollback"
   validate_sha "$PREVIOUS_SHA"
-  exec "${SCRIPT_DIR}/deploy-sha.sh" "$APP_ID" "$PREVIOUS_SHA" --lock-held
+  exec "${SCRIPT_DIR}/deploy-sha.sh" "$APP_ID" "$PREVIOUS_SHA" --lock-held --source rollback
 }
 
 main "$@"

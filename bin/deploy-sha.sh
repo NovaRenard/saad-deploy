@@ -6,20 +6,33 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 
 usage() {
-  printf 'Usage: %s <app-id> [<sha>|--query-ci] [--lock-held]\n' "${0##*/}" >&2
+  printf 'Usage: %s <app-id> [<sha>|--query-ci] [--lock-held] [--source automated|manual|rollback]\n' "${0##*/}" >&2
 }
 
 main() {
-  (($# == 2 || $# == 3)) || { usage; return 2; }
+  (($# >= 2 && $# <= 5)) || { usage; return 2; }
 
   local app_id="$1"
   local target_argument="$2"
   local query_ci=0
   local lock_held=0
-  if (($# == 3)); then
-    [[ "$3" == --lock-held ]] || { usage; return 2; }
-    lock_held=1
-  fi
+  DEPLOY_SOURCE=automated
+  shift 2
+  while (($#)); do
+    case "$1" in
+      --lock-held)
+        ((lock_held == 0)) || { usage; return 2; }
+        lock_held=1
+        shift
+        ;;
+      --source)
+        (($# >= 2)) || { usage; return 2; }
+        case "$2" in automated|manual|rollback) DEPLOY_SOURCE="$2" ;; *) usage; return 2 ;; esac
+        shift 2
+        ;;
+      *) usage; return 2 ;;
+    esac
+  done
   if [[ "$target_argument" == --query-ci ]]; then
     query_ci=1
   else
