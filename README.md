@@ -80,6 +80,7 @@ Useful commands:
 ```bash
 sudo /opt/saad-deploy/bin/status.sh example
 sudo /opt/saad-deploy/bin/deploy-sha.sh example <approved-sha>
+sudo /opt/saad-deploy/bin/recreate.sh example
 sudo /opt/saad-deploy/bin/rollback.sh example
 ```
 
@@ -99,6 +100,22 @@ State is held in `STATE_DIR` as `current-sha`, `previous-sha`, `deployed-at`,
 `status.json`, and `last-error.log`. Files are written via same-directory temporary
 files and atomic renames. A failure records `deploy_failed` and the failed step
 without replacing `current-sha`.
+
+## Restart, recreate, and deploy
+
+The three operations intentionally have different scopes:
+
+| Operation | What it does | What it never does |
+| --- | --- | --- |
+| `restart.sh <app-id>` | Runs `docker compose restart` for the root-owned `APP_SERVICES` and `EXTRA_APP_SERVICES` lists. | Does not recreate containers, read a new SHA, or apply changed compose/environment configuration. |
+| `recreate.sh <app-id>` | Requires `current-sha`, checks out that exact local revision, exports `IMAGE_TAG`, validates Compose and external networks, then runs `docker compose up -d --force-recreate` for only application and extra application services. It waits for health checks and URLs. | Does not poll CI, build images, run migrations, start/recreate `INFRA_SERVICES`, or accept a caller-provided SHA/service/Compose argument. |
+| `deploy-sha.sh <app-id> <sha>\|--query-ci` | Deploys a validated newer revision through the full build, backup, migration, infrastructure, application, and health-gated lifecycle. | Does not accept arbitrary shell or Docker input. |
+
+`Restart != Recreate != Deploy`. Every operation loads the fixed root-owned
+`/etc/saad-deploy/<APP_ID>.env` contract, validates the application ID, and
+uses the same non-blocking per-application lock. `recreate.sh` writes a normal
+operation result to `status.json`; a health failure remains nonzero and records
+the failed step without changing `current-sha`.
 
 ## Migrating old project-specific timers
 

@@ -9,6 +9,7 @@ SCRIPTS=(
   "$ROOT_DIR/bin/status.sh"
   "$ROOT_DIR/bin/rollback.sh"
   "$ROOT_DIR/bin/restart.sh"
+  "$ROOT_DIR/bin/recreate.sh"
 )
 
 bash -n "${SCRIPTS[@]}"

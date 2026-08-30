@@ -20,6 +20,10 @@ assert_contains() {
   [[ "$1" == *"$2"* ]] || fail "expected output to contain '$2'"
 }
 
+assert_not_contains() {
+  [[ "$1" != *"$2"* ]] || fail "expected output not to contain '$2'"
+}
+
 assert_missing() {
   [[ ! -e "$1" ]] || fail "expected path to be absent: $1"
 }
@@ -47,7 +51,7 @@ make_mocks() {
     'exit 0' >"$mock_dir/curl"
   # shellcheck disable=SC2016 # The test mock must expand these variables when invoked later.
   printf '%s\n' '#!/usr/bin/env bash' \
-    'printf "docker %s\n" "$*" >>"$CALL_LOG"' \
+    'printf "docker IMAGE_TAG=%s %s\n" "${IMAGE_TAG:-}" "$*" >>"$CALL_LOG"' \
     'args=" $* "' \
     'if [[ "$args" == *" build "* && ${SCENARIO:-} == failed_build ]]; then exit 1; fi' \
     'if [[ "$args" == *" run "* && ${SCENARIO:-} == failed_migration ]]; then exit 1; fi' \
@@ -115,6 +119,13 @@ run_restart() {
   SCENARIO="$scenario" CALL_LOG="$FIXTURE/calls.log" \
     PATH="$MOCK_DIR:$PATH" SAAD_DEPLOY_CONFIG_DIR="$CONFIG_DIR" \
     bash "$PROJECT_ROOT/bin/restart.sh" sample
+}
+
+run_recreate() {
+  local scenario="$1"
+  SCENARIO="$scenario" CALL_LOG="$FIXTURE/calls.log" \
+    PATH="$MOCK_DIR:$PATH" SAAD_DEPLOY_CONFIG_DIR="$CONFIG_DIR" \
+    bash "$PROJECT_ROOT/bin/recreate.sh" sample
 }
 
 read_status() {
@@ -215,6 +226,50 @@ test_restart_does_not_write_deployment_status() {
   assert_contains "$(<"$FIXTURE/calls.log")" 'restart web worker'
 }
 
+test_recreate_requires_current_sha() {
+  make_fixture recreate-no-current-sha
+  if run_recreate success; then fail 'recreate without current SHA must fail'; fi
+  assert_missing "$FIXTURE/calls.log"
+}
+
+test_recreate_recreates_only_application_services() {
+  make_fixture recreate
+  printf '%s\n' "$TARGET_SHA" >"$STATE_DIR/current-sha"
+  printf '%s\n' '{"status":"healthy","step":"complete"}' >"$STATE_DIR/status.json"
+  run_recreate success
+  read_status
+  local calls
+  calls="$(<"$FIXTURE/calls.log")"
+  assert_contains "$calls" "IMAGE_TAG=$TARGET_SHA compose --project-name deploytest --env-file $FIXTURE/app/.env.production -f $FIXTURE/app/compose.yml up -d --force-recreate web worker"
+  assert_not_contains "$calls" 'build '
+  assert_not_contains "$calls" 'run --rm --no-deps migrate'
+  assert_not_contains "$calls" 'up -d database'
+  assert_equals "$TARGET_SHA" "$(<"$STATE_DIR/current-sha")"
+  assert_contains "$STATUS_CONTENT" '"status": "healthy"'
+  assert_contains "$STATUS_CONTENT" '"source": "manual"'
+}
+
+test_recreate_failure_is_nonzero_and_records_failed_step() {
+  make_fixture recreate-failed-health
+  printf '%s\n' "$TARGET_SHA" >"$STATE_DIR/current-sha"
+  if run_recreate failed_healthcheck; then fail 'failed recreate health check must return nonzero'; fi
+  read_status
+  assert_contains "$STATUS_CONTENT" '"status": "deploy_failed"'
+  assert_contains "$STATUS_CONTENT" '"step": "checking_health_urls"'
+}
+
+test_recreate_lock_and_arguments_are_restricted() {
+  make_fixture recreate-lock
+  printf '%s\n' "$TARGET_SHA" >"$STATE_DIR/current-sha"
+  set +e
+  run_recreate concurrent
+  local exit_code=$?
+  set -e
+  assert_equals 75 "$exit_code"
+  if PATH="$MOCK_DIR:$PATH" SAAD_DEPLOY_CONFIG_DIR="$CONFIG_DIR" bash "$PROJECT_ROOT/bin/recreate.sh" sample unexpected; then fail 'recreate must reject arbitrary arguments'; fi
+  if PATH="$MOCK_DIR:$PATH" SAAD_DEPLOY_CONFIG_DIR="$CONFIG_DIR" bash "$PROJECT_ROOT/bin/recreate.sh" '../invalid'; then fail 'recreate must reject invalid app ids'; fi
+}
+
 test_state_writes_are_atomic() {
   make_fixture state-atomicity
   printf '%s\n' "$OLD_SHA" >"$STATE_DIR/current-sha"
@@ -259,4 +314,8 @@ run_case test_successful_deployment
 run_case test_state_writes_are_atomic
 run_case test_rollback_records_rollback_source
 run_case test_restart_does_not_write_deployment_status
+run_case test_recreate_requires_current_sha
+run_case test_recreate_recreates_only_application_services
+run_case test_recreate_failure_is_nonzero_and_records_failed_step
+run_case test_recreate_lock_and_arguments_are_restricted
 printf 'All deployment scenario tests passed.\n'
