@@ -10,7 +10,9 @@ tests/check.sh
 runs ShellCheck when `shellcheck` is installed. CI installs ShellCheck, so linting
 is mandatory there.
 
-The scenario suite replaces Docker, GitHub, Git, and `flock` with small command
-mocks. It covers no-op deployments, failed CI, lock contention, build/migration/
-health failures, successful promotion, atomic status writes, and preservation of
-the prior `current-sha` after failures.
+The scenario suite replaces Docker, GitHub, Git, flock, Nginx, and systemctl
+with small command mocks. It covers no-op deployments, failed CI, lock
+contention, build/migration/health failures, successful legacy promotion, both
+blue/green promotion directions, bootstrap, candidate Docker/HTTP health
+failures, Nginx test/reload failures, public health rollback, worker rollback,
+state-write atomicity, strict validation, and fast rollback without a rebuild.

@@ -11,7 +11,8 @@ main() {
   if [[ -f "$STATE_DIR/status.json" ]]; then
     cat "$STATE_DIR/status.json"
   else
-    printf '{"app_id":"%s","status":"unknown","step":"not_deployed"}\n' "$APP_ID"
+    printf '{"app_id":"%s","status":"unknown","step":"not_deployed","deployment_strategy":"%s","current_sha":null,"previous_sha":null,"active_slot":null,"candidate_slot":null,"blue_sha":null,"green_sha":null,"last_error":null}\n' \
+      "$APP_ID" "$DEPLOY_STRATEGY"
   fi
 }
 

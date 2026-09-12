@@ -17,6 +17,20 @@ main() {
   TARGET_SHA="$CURRENT_SHA"
   prepare_compose_args
 
+  if [[ "$DEPLOY_STRATEGY" == blue_green ]]; then
+    [[ -n "$ACTIVE_SLOT" ]] || die "blue/green restart requires an active slot"
+    validate_blue_green_config
+    prepare_blue_green_compose_args
+    determine_blue_green_slots
+    local traffic_services=() worker_services=() services=()
+    split_list TRAFFIC_SERVICES traffic_services
+    split_list WORKER_SERVICES worker_services
+    services=("${traffic_services[@]}" "${worker_services[@]}")
+    ((${#services[@]} > 0)) || die "no application services are configured for restart"
+    compose_slot_with_sha "$ACTIVE_SLOT" "$ACTIVE_SLOT_SHA" restart "${services[@]}"
+    return 0
+  fi
+
   # Services come only from the root-owned deployment declaration. The caller
   # supplies no Docker service, path, environment, or compose arguments.
   local application_services=() extra_services=() services=()

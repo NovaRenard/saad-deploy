@@ -30,6 +30,30 @@ main() {
   checkout_target_sha
   export IMAGE_TAG="$TARGET_SHA"
   prepare_compose_args
+
+  if [[ "$DEPLOY_STRATEGY" == blue_green ]]; then
+    [[ -n "$ACTIVE_SLOT" ]] || die "blue/green recreate requires an active slot"
+    validate_blue_green_config
+    prepare_blue_green_compose_args
+    determine_blue_green_slots
+    local traffic_services=() worker_services=() services=()
+    split_list TRAFFIC_SERVICES traffic_services
+    split_list WORKER_SERVICES worker_services
+    services=("${traffic_services[@]}" "${worker_services[@]}")
+    ((${#services[@]} > 0)) || die "no application services are configured for recreate"
+    set_step recreating_application
+    compose_slot_with_sha "$ACTIVE_SLOT" "$ACTIVE_SLOT_SHA" up -d --force-recreate --no-deps "${services[@]}"
+    wait_for_slot_services_healthy "$ACTIVE_SLOT" "$ACTIVE_SLOT_SHA" waiting_for_application_health TRAFFIC_HEALTH_SERVICES
+    if ((${#worker_services[@]} > 0)); then
+      wait_for_slot_services_healthy "$ACTIVE_SLOT" "$ACTIVE_SLOT_SHA" waiting_for_worker_health WORKER_HEALTH_SERVICES
+    fi
+    check_health_urls
+    set_step complete
+    rm -f "$STATE_DIR/last-error.log"
+    write_status healthy complete "$(now_utc)" ""
+    return 0
+  fi
+
   validate_compose
   verify_external_networks
 

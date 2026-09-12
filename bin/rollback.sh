@@ -13,6 +13,8 @@ main() {
   read_state
   [[ -n "$PREVIOUS_SHA" ]] || die "no previous SHA is available for rollback"
   validate_sha "$PREVIOUS_SHA"
+  # Keep strategy-specific rollback in the generic deployment engine. The
+  # wrapper only resolves the previous SHA and preserves the held lock.
   exec "${SCRIPT_DIR}/deploy-sha.sh" "$APP_ID" "$PREVIOUS_SHA" --lock-held --source rollback
 }
 
