@@ -428,8 +428,10 @@ validate_blue_green_compose() {
 }
 
 ensure_state_dir() {
-  umask 077
-  mkdir -p "$STATE_DIR"
+  (
+    umask 077
+    mkdir -p "$STATE_DIR"
+  )
 }
 
 read_state() {
