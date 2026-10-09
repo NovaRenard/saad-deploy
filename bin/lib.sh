@@ -751,10 +751,12 @@ backup_postgres_if_present() {
 
 run_migrations() {
   set_step running_migrations
+  # One-shot prerequisites such as database role/extension provisioning must
+  # complete before Alembic, as declared by the migration service's depends_on.
   if [[ "$DEPLOY_STRATEGY" == blue_green ]]; then
-    compose_infra run --rm --no-deps "$MIGRATE_SERVICE"
+    compose_infra run --rm "$MIGRATE_SERVICE"
   else
-    compose run --rm --no-deps "$MIGRATE_SERVICE"
+    compose run --rm "$MIGRATE_SERVICE"
   fi
 }
 

@@ -267,7 +267,8 @@ test_successful_deployment() {
   assert_contains "$STATUS_CONTENT" '"deployment_strategy": "recreate"'
   assert_contains "$STATUS_CONTENT" '"source": "automated"'
   assert_contains "$(<"$FIXTURE/calls.log")" 'build web worker'
-  assert_contains "$(<"$FIXTURE/calls.log")" 'run --rm --no-deps migrate'
+  assert_contains "$(<"$FIXTURE/calls.log")" 'run --rm migrate'
+  assert_not_contains "$(<"$FIXTURE/calls.log")" 'run --rm --no-deps migrate'
 }
 
 test_rollback_records_rollback_source() {
@@ -306,7 +307,7 @@ test_recreate_recreates_only_application_services() {
   calls="$(<"$FIXTURE/calls.log")"
   assert_contains "$calls" "IMAGE_TAG=$TARGET_SHA compose --project-name deploytest --env-file $FIXTURE/app/.env.production -f $FIXTURE/app/compose.yml up -d --force-recreate web worker"
   assert_not_contains "$calls" 'build '
-  assert_not_contains "$calls" 'run --rm --no-deps migrate'
+  assert_not_contains "$calls" 'run --rm migrate'
   assert_not_contains "$calls" 'up -d database'
   assert_equals "$TARGET_SHA" "$(<"$STATE_DIR/current-sha")"
   assert_contains "$STATUS_CONTENT" '"status": "healthy"'
@@ -486,7 +487,7 @@ test_blue_green_fast_rollback_uses_existing_slot_without_rebuild() {
   assert_equals blue "$(<"$STATE_DIR/active-slot")"
   assert_equals 'server 127.0.0.1:18080;' "$(<"$NGINX_ALLOWED_DIR/upstream.conf")"
   assert_not_contains "$calls" ' build '
-  assert_not_contains "$calls" ' run --rm --no-deps migrate'
+  assert_not_contains "$calls" ' run --rm migrate'
   assert_contains "$STATUS_CONTENT" '"source": "rollback"'
 }
 
