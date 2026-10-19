@@ -209,8 +209,12 @@ provided reload command is used.
 
 restart.sh does not read a new SHA, recreate containers, or write deployment
 status. recreate.sh does not poll CI, build images, run migrations, or recreate
-stable infrastructure. The deployment lock is application-specific and
-non-blocking; contention exits with code 75 without changing state.
+stable infrastructure. The deployment lock is application-specific. Automated polls, restart, recreate, and
+rollback remain non-blocking: contention exits with code 75 without changing
+state. Explicit deployments using `deploy-sha.sh ... --source manual` wait for
+the per-app lock for up to 120 seconds before returning code 75. Waiting does
+not alter deployment state, and the target CI SHA is resolved after the lock is
+acquired.
 
 ## State and status
 
