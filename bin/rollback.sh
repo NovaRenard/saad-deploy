@@ -9,7 +9,7 @@ main() {
   (($# == 1)) || { printf 'Usage: %s <app-id>\n' "${0##*/}" >&2; return 2; }
   load_config "$1"
   ensure_state_dir
-  acquire_lock
+  acquire_lock 0
   read_state
   [[ -n "$PREVIOUS_SHA" ]] || die "no previous SHA is available for rollback"
   validate_sha "$PREVIOUS_SHA"
