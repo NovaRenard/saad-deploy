@@ -565,10 +565,19 @@ install_deployment_trap() {
 }
 
 acquire_lock() {
+  # Automated polls and other commands must never overlap an active deployment.
+  # Explicit manual deploys may wait briefly instead of failing on contention.
+  local wait_seconds="${1:-0}"
+  [[ "$wait_seconds" =~ ^[0-9]+$ ]] || die "invalid deployment lock wait"
   ensure_state_dir
   local lock_file="$STATE_DIR/deploy.lock"
   exec {DEPLOY_LOCK_FD}>"$lock_file"
-  if ! flock -n "$DEPLOY_LOCK_FD"; then
+  if ((wait_seconds > 0)); then
+    if ! flock -w "$wait_seconds" "$DEPLOY_LOCK_FD"; then
+      printf 'saad-deploy: deployment lock is busy for %s (waited %s seconds)\n' "$APP_ID" "$wait_seconds" >&2
+      exit "$SAAD_DEPLOY_LOCK_EXIT_CODE"
+    fi
+  elif ! flock -n "$DEPLOY_LOCK_FD"; then
     printf 'saad-deploy: deployment already in progress for %s\n' "$APP_ID" >&2
     exit "$SAAD_DEPLOY_LOCK_EXIT_CODE"
   fi
