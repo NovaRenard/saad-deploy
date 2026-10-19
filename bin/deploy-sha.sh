@@ -54,7 +54,15 @@ main() {
   OLD_WORKERS_STOPPED=0
   PREVIOUS_TRAFFIC_STOPPED=0
   install_deployment_trap
-  ((lock_held)) || acquire_lock
+  if (( ! lock_held )); then
+    if [[ "$DEPLOY_SOURCE" == manual ]]; then
+      # A manual request racing the two-minute poller should wait safely for
+      # the existing transaction rather than failing immediately with code 75.
+      acquire_lock 120
+    else
+      acquire_lock
+    fi
+  fi
   read_state
 
   if ((query_ci)); then
