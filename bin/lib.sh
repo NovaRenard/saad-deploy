@@ -567,7 +567,7 @@ install_deployment_trap() {
 acquire_lock() {
   # Automated polls and other commands must never overlap an active deployment.
   # Explicit manual deploys may wait briefly instead of failing on contention.
-  local wait_seconds="${1:-0}"
+  local wait_seconds="$1"
   [[ "$wait_seconds" =~ ^[0-9]+$ ]] || die "invalid deployment lock wait"
   ensure_state_dir
   local lock_file="$STATE_DIR/deploy.lock"
