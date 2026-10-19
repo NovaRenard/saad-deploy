@@ -23,7 +23,7 @@ main() {
   START_EPOCH="$(epoch_seconds)"
   CURRENT_STEP=acquiring_lock
   install_deployment_trap
-  acquire_lock
+  acquire_lock 0
 
   set_step verifying_current_sha
   git -C "$APP_DIR" rev-parse --verify "${TARGET_SHA}^{commit}" >/dev/null
