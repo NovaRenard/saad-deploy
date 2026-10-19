@@ -60,7 +60,7 @@ main() {
       # the existing transaction rather than failing immediately with code 75.
       acquire_lock 120
     else
-      acquire_lock
+      acquire_lock 0
     fi
   fi
   read_state
