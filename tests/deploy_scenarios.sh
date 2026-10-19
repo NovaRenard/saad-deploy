@@ -33,7 +33,10 @@ make_mocks() {
   mkdir -p "$mock_dir"
 
   # shellcheck disable=SC2016 # The test mock must expand these variables when invoked later.
-  printf '%s\n' '#!/usr/bin/env bash' 'if [[ ${SCENARIO:-} == concurrent ]]; then exit 1; fi' 'exit 0' >"$mock_dir/flock"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'if [[ ${SCENARIO:-} == concurrent ]]; then exit 1; fi' \
+    'if [[ ${SCENARIO:-} == manual_wait && ( "$1" != "-w" || "$2" != "120" ) ]]; then exit 1; fi' \
+    'exit 0' >"$mock_dir/flock"
   # shellcheck disable=SC2016 # The test mock must expand these variables when invoked later.
   printf '%s\n' '#!/usr/bin/env bash' 'printf "git %s\n" "$*" >>"$CALL_LOG"' 'exit 0' >"$mock_dir/git"
   # shellcheck disable=SC2016 # The test mock must expand these variables when invoked later.
@@ -220,6 +223,32 @@ test_concurrent_deploy() {
   printf '%s\n' '{"status":"healthy","step":"complete"}' >"$STATE_DIR/status.json"
   set +e
   run_poll concurrent
+  local exit_code=$?
+  set -e
+  assert_equals 75 "$exit_code"
+  assert_equals "$OLD_SHA" "$(<"$STATE_DIR/current-sha")"
+  assert_equals '{"status":"healthy","step":"complete"}' "$(<"$STATE_DIR/status.json")"
+}
+
+test_manual_deploy_waits_for_lock() {
+  make_fixture manual-wait
+  printf '%s\n' "$OLD_SHA" >"$STATE_DIR/current-sha"
+  SCENARIO=manual_wait CALL_LOG="$FIXTURE/calls.log" \
+    PATH="$MOCK_DIR:$PATH" SAAD_DEPLOY_CONFIG_DIR="$CONFIG_DIR" \
+    bash "$PROJECT_ROOT/bin/deploy-sha.sh" sample --query-ci --source manual
+  read_status
+  assert_contains "$STATUS_CONTENT" '"status": "healthy"'
+  assert_equals "$TARGET_SHA" "$(<"$STATE_DIR/current-sha")"
+}
+
+test_manual_deploy_keeps_lock_contention_safe() {
+  make_fixture manual-busy
+  printf '%s\n' "$OLD_SHA" >"$STATE_DIR/current-sha"
+  printf '%s\n' '{"status":"healthy","step":"complete"}' >"$STATE_DIR/status.json"
+  set +e
+  SCENARIO=concurrent CALL_LOG="$FIXTURE/calls.log" \
+    PATH="$MOCK_DIR:$PATH" SAAD_DEPLOY_CONFIG_DIR="$CONFIG_DIR" \
+    bash "$PROJECT_ROOT/bin/deploy-sha.sh" sample --query-ci --source manual
   local exit_code=$?
   set -e
   assert_equals 75 "$exit_code"
@@ -561,6 +590,8 @@ run_case() {
 run_case test_already_deployed_sha
 run_case test_failed_ci
 run_case test_concurrent_deploy
+run_case test_manual_deploy_waits_for_lock
+run_case test_manual_deploy_keeps_lock_contention_safe
 run_case test_failed_build_preserves_current_sha
 run_case test_failed_migration_preserves_current_sha
 run_case test_failed_healthcheck_preserves_current_sha
