@@ -89,7 +89,7 @@ load_config() {
     BACKUP_RETENTION_DAYS POSTGRES_SERVICE INFRA_SERVICES BUILD_SERVICES
     MIGRATE_SERVICE APP_SERVICES EXTRA_APP_SERVICES HEALTH_SERVICES
     REQUIRED_EXTERNAL_NETWORKS HEALTH_URLS COMPOSE_PROFILES
-    HEALTH_TIMEOUT_SECONDS HEALTH_POLL_SECONDS
+    HEALTH_TIMEOUT_SECONDS HEALTH_POLL_SECONDS MANUAL_LOCK_WAIT_SECONDS
     TRAFFIC_SERVICES TRAFFIC_HEALTH_SERVICES WORKER_SERVICES WORKER_HEALTH_SERVICES
     BLUE_ENV_FILE GREEN_ENV_FILE BLUE_HEALTH_URLS GREEN_HEALTH_URLS
     NGINX_UPSTREAM_FILE NGINX_BLUE_UPSTREAM NGINX_GREEN_UPSTREAM DRAIN_SECONDS
@@ -109,6 +109,11 @@ load_config() {
   fi
   HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-180}"
   HEALTH_POLL_SECONDS="${HEALTH_POLL_SECONDS:-3}"
+  # Manual commands (dashboard Deploy/Restart/Apply config/Rollback) wait for a
+  # running automated deployment instead of failing immediately with code 75.
+  MANUAL_LOCK_WAIT_SECONDS="${MANUAL_LOCK_WAIT_SECONDS:-900}"
+  [[ "$MANUAL_LOCK_WAIT_SECONDS" =~ ^[0-9]+$ ]] ||
+    die "MANUAL_LOCK_WAIT_SECONDS must be a non-negative integer"
 
   require_declared \
     GITHUB_REPOSITORY GITHUB_WORKFLOW GITHUB_TOKEN DEPLOY_BRANCH APP_DIR APP_ENV \
@@ -583,14 +588,17 @@ install_deployment_trap() {
 }
 
 acquire_lock() {
-  # Automated polls and other commands must never overlap an active deployment.
-  # Explicit manual deploys may wait briefly instead of failing on contention.
+  # Automated polls must never overlap or queue behind an active deployment.
+  # Manual commands wait up to MANUAL_LOCK_WAIT_SECONDS instead of failing.
   local wait_seconds="$1"
   [[ "$wait_seconds" =~ ^[0-9]+$ ]] || die "invalid deployment lock wait"
   ensure_state_dir
   local lock_file="$STATE_DIR/deploy.lock"
   exec {DEPLOY_LOCK_FD}>"$lock_file"
   if ((wait_seconds > 0)); then
+    flock -n "$DEPLOY_LOCK_FD" && return 0
+    printf 'saad-deploy: another deployment of %s is running; waiting up to %s seconds for it to finish\n' \
+      "$APP_ID" "$wait_seconds" >&2
     if ! flock -w "$wait_seconds" "$DEPLOY_LOCK_FD"; then
       printf 'saad-deploy: deployment lock is busy for %s (waited %s seconds)\n' "$APP_ID" "$wait_seconds" >&2
       exit "$SAAD_DEPLOY_LOCK_EXIT_CODE"

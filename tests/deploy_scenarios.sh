@@ -35,7 +35,7 @@ make_mocks() {
   # shellcheck disable=SC2016 # The test mock must expand these variables when invoked later.
   printf '%s\n' '#!/usr/bin/env bash' \
     'if [[ ${SCENARIO:-} == concurrent ]]; then exit 1; fi' \
-    'if [[ ${SCENARIO:-} == manual_wait && ( "$1" != "-w" || "$2" != "120" ) ]]; then exit 1; fi' \
+    'if [[ ${SCENARIO:-} == manual_wait && ( "$1" != "-w" || "$2" != "900" ) ]]; then exit 1; fi' \
     'exit 0' >"$mock_dir/flock"
   # shellcheck disable=SC2016 # The test mock must expand these variables when invoked later.
   printf '%s\n' '#!/usr/bin/env bash' 'printf "git %s\n" "$*" >>"$CALL_LOG"' 'exit 0' >"$mock_dir/git"

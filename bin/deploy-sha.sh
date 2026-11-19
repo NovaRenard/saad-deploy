@@ -69,9 +69,9 @@ main() {
   install_deployment_trap
   if (( ! lock_held )); then
     if [[ "$DEPLOY_SOURCE" == manual ]]; then
-      # A manual request racing the two-minute poller should wait safely for
+      # A manual request racing the two-minute poller waits safely for
       # the existing transaction rather than failing immediately with code 75.
-      acquire_lock 120
+      acquire_lock "$MANUAL_LOCK_WAIT_SECONDS"
     else
       acquire_lock 0
     fi
@@ -90,6 +90,8 @@ main() {
     ( "$DEPLOY_STRATEGY" == recreate || -n "$ACTIVE_SLOT" ) ]]; then
     set_step already_deployed
     write_status healthy already_deployed "$(now_utc)" ""
+    printf 'saad-deploy: %s already runs %s; nothing to deploy
+' "$APP_ID" "${TARGET_SHA:0:12}" >&2
     return 0
   fi
 
@@ -105,6 +107,8 @@ main() {
     if blue_green_fast_rollback_available; then
       run_blue_green_fast_rollback
       prune_dangling_images
+      printf 'saad-deploy: rolled %s back to %s
+' "$APP_ID" "${TARGET_SHA:0:12}" >&2
       return 0
     fi
   fi
@@ -135,6 +139,8 @@ main() {
     commit_successful_state
   fi
   prune_dangling_images
+  printf 'saad-deploy: deployed %s to %s
+' "${TARGET_SHA:0:12}" "$APP_ID" >&2
 }
 
 main "$@"

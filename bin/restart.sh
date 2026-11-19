@@ -10,7 +10,7 @@ main() {
 
   load_config "$1"
   ensure_state_dir
-  acquire_lock 0
+  acquire_lock "$MANUAL_LOCK_WAIT_SECONDS"
   read_state
   [[ -n "$CURRENT_SHA" ]] || die "no current SHA is available for restart"
   validate_sha "$CURRENT_SHA"
