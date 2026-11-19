@@ -5,6 +5,11 @@ applications. Application-specific policy lives in a root-owned environment file
 at /etc/saad-deploy/<APP_ID>.env. The engine contains no CRM-specific logic and
 never evaluates shell commands supplied by that contract.
 
+**New project?** Follow [docs/PROJECT_STANDARD.md](docs/PROJECT_STANDARD.md):
+a Compose file with healthchecks, a `deploy.yml` workflow, and one
+`bin/add-app.sh` call register any project (CRM, site, bot, service) with
+automatic deployment and a dashboard category.
+
 The poller deploys the newest successful GitHub Actions push run for the
 configured branch, verifies its exact SHA, checks it out detached, and runs the
 selected deployment strategy.
@@ -16,7 +21,7 @@ the systemd units:
 
 ```bash
 sudo install -d -m 0755 /opt/saad-deploy /etc/saad-deploy
-sudo cp -a bin systemd README.md examples /opt/saad-deploy/
+sudo cp -a bin systemd README.md examples docs templates /opt/saad-deploy/
 sudo chmod 0755 /opt/saad-deploy/bin/*.sh
 sudo cp /opt/saad-deploy/systemd/saad-deploy@.service /opt/saad-deploy/systemd/saad-deploy@.timer /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -62,6 +67,12 @@ REQUIRED_EXTERNAL_NETWORKS="shared-edge"
 HEALTH_URLS="https://service.example/healthz"
 COMPOSE_PROFILES="production"
 ```
+
+POSTGRES_SERVICE, MIGRATE_SERVICE, INFRA_SERVICES, EXTRA_APP_SERVICES,
+REQUIRED_EXTERNAL_NETWORKS, COMPOSE_PROFILES, BACKUP_DIR and
+BACKUP_RETENTION_DAYS are optional; a project without a database omits them and
+the backup and migration steps are skipped. APP_NAME, APP_CATEGORY
+(crm, site, bot, service, internal, other) and PUBLIC_URL are dashboard metadata.
 
 APP_ENV, COMPOSE_FILE, STATE_DIR, and BACKUP_DIR may be absolute or relative to
 APP_DIR. Service, network, profile, and URL lists are whitespace separated.

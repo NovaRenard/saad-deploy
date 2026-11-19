@@ -284,6 +284,30 @@ test_failed_healthcheck_preserves_current_sha() {
   assert_equals "$OLD_SHA" "$(<"$STATE_DIR/current-sha")"
 }
 
+test_project_without_database_skips_backup_and_migrations() {
+  make_fixture no-database
+  printf '%s
+' "$OLD_SHA" >"$STATE_DIR/current-sha"
+  # Project standard: a site/bot declares only source, Compose and app services.
+  printf '%s
+'     'APP_NAME="Landing page"'     'APP_CATEGORY=site'     'PUBLIC_URL=https://landing.invalid'     'GITHUB_REPOSITORY=owner/repository'     'GITHUB_WORKFLOW=workflow.yml'     'GITHUB_TOKEN=test-token'     'DEPLOY_BRANCH=main'     "APP_DIR=$FIXTURE/app"     'APP_ENV=.env.production'     'COMPOSE_FILE=compose.yml'     'COMPOSE_PROJECT_NAME=deploytest'     "STATE_DIR=$STATE_DIR"     'BUILD_SERVICES=web'     'APP_SERVICES=web'     'HEALTH_SERVICES=web'     'HEALTH_URLS='     'HEALTH_TIMEOUT_SECONDS=1'     'HEALTH_POLL_SECONDS=0' >"$CONFIG_DIR/sample.env"
+  run_poll success
+  read_status
+  assert_equals "$TARGET_SHA" "$(<"$STATE_DIR/current-sha")"
+  assert_contains "$STATUS_CONTENT" '"step": "complete"'
+  local calls
+  calls="$(<"$FIXTURE/calls.log")"
+  [[ "$calls" != *"run --rm"* ]] || fail 'no migration service must run'
+  [[ "$calls" != *"pg_dumpall"* ]] || fail 'no PostgreSQL backup must run'
+}
+
+test_invalid_category_is_rejected() {
+  make_fixture invalid-category
+  printf '%s
+' 'APP_CATEGORY=spaceship' >>"$CONFIG_DIR/sample.env"
+  if run_status >/dev/null 2>&1; then fail 'unknown APP_CATEGORY must be rejected'; fi
+}
+
 test_successful_deployment() {
   make_fixture successful
   printf '%s\n' "$OLD_SHA" >"$STATE_DIR/current-sha"
@@ -626,6 +650,8 @@ run_case() {
 run_case test_already_deployed_sha
 run_case test_failed_ci
 run_case test_concurrent_deploy
+run_case test_project_without_database_skips_backup_and_migrations
+run_case test_invalid_category_is_rejected
 run_case test_manual_deploy_waits_for_lock
 run_case test_manual_deploy_keeps_lock_contention_safe
 run_case test_failed_build_preserves_current_sha

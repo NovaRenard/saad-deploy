@@ -90,6 +90,7 @@ load_config() {
     MIGRATE_SERVICE APP_SERVICES EXTRA_APP_SERVICES HEALTH_SERVICES
     REQUIRED_EXTERNAL_NETWORKS HEALTH_URLS COMPOSE_PROFILES
     HEALTH_TIMEOUT_SECONDS HEALTH_POLL_SECONDS MANUAL_LOCK_WAIT_SECONDS
+    APP_NAME APP_CATEGORY PUBLIC_URL
     TRAFFIC_SERVICES TRAFFIC_HEALTH_SERVICES WORKER_SERVICES WORKER_HEALTH_SERVICES
     BLUE_ENV_FILE GREEN_ENV_FILE BLUE_HEALTH_URLS GREEN_HEALTH_URLS
     NGINX_UPSTREAM_FILE NGINX_BLUE_UPSTREAM NGINX_GREEN_UPSTREAM DRAIN_SECONDS
@@ -115,16 +116,34 @@ load_config() {
   [[ "$MANUAL_LOCK_WAIT_SECONDS" =~ ^[0-9]+$ ]] ||
     die "MANUAL_LOCK_WAIT_SECONDS must be a non-negative integer"
 
+  # Project standard: only the Git source, the Compose project and the services
+  # to build/start/check are mandatory. A project without PostgreSQL or
+  # migrations (a site, bot or worker) leaves POSTGRES_SERVICE/MIGRATE_SERVICE
+  # empty or absent, and the backup and migration steps are skipped.
   require_declared \
     GITHUB_REPOSITORY GITHUB_WORKFLOW GITHUB_TOKEN DEPLOY_BRANCH APP_DIR APP_ENV \
-    COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR BACKUP_DIR BACKUP_RETENTION_DAYS \
-    POSTGRES_SERVICE INFRA_SERVICES BUILD_SERVICES MIGRATE_SERVICE APP_SERVICES \
-    EXTRA_APP_SERVICES HEALTH_SERVICES REQUIRED_EXTERNAL_NETWORKS HEALTH_URLS \
-    COMPOSE_PROFILES
+    COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR BUILD_SERVICES APP_SERVICES \
+    HEALTH_SERVICES HEALTH_URLS
+  POSTGRES_SERVICE="${POSTGRES_SERVICE:-}"
+  MIGRATE_SERVICE="${MIGRATE_SERVICE:-}"
+  INFRA_SERVICES="${INFRA_SERVICES:-}"
+  EXTRA_APP_SERVICES="${EXTRA_APP_SERVICES:-}"
+  REQUIRED_EXTERNAL_NETWORKS="${REQUIRED_EXTERNAL_NETWORKS:-}"
+  COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
+  BACKUP_DIR="${BACKUP_DIR:-${STATE_DIR}/backups}"
+  BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
   require_nonempty \
     GITHUB_REPOSITORY GITHUB_WORKFLOW GITHUB_TOKEN DEPLOY_BRANCH APP_DIR APP_ENV \
-    COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR BACKUP_DIR BACKUP_RETENTION_DAYS \
-    POSTGRES_SERVICE MIGRATE_SERVICE
+    COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR
+
+  # Dashboard metadata. The engine never acts on it; the node agent reports it.
+  APP_NAME="${APP_NAME:-$APP_ID}"
+  APP_CATEGORY="${APP_CATEGORY:-other}"
+  PUBLIC_URL="${PUBLIC_URL:-}"
+  [[ "$APP_CATEGORY" =~ ^(crm|site|bot|service|internal|other)$ ]] ||
+    die "APP_CATEGORY must be one of: crm site bot service internal other"
+  ((${#APP_NAME} <= 120)) || die "APP_NAME must be at most 120 characters"
+  [[ -z "$PUBLIC_URL" || "$PUBLIC_URL" =~ ^https?://[^[:space:]]+$ ]] || die "invalid PUBLIC_URL"
 
   [[ "$GITHUB_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "invalid GITHUB_REPOSITORY"
   [[ "$DEPLOY_BRANCH" != *$'\n'* && "$DEPLOY_BRANCH" != *$'\r'* ]] || die "invalid DEPLOY_BRANCH"
@@ -381,6 +400,8 @@ require_scalar_service_in_compose_config() {
   local services_output="$2"
   local variable_name="$3"
   local service="${!variable_name}"
+  # Optional single services (POSTGRES_SERVICE, MIGRATE_SERVICE) may be empty.
+  [[ -n "$service" ]] || return 0
   grep -Fxq -- "$service" <<<"$services_output" ||
     die "${variable_name} service is not present in ${slot} Compose config: ${service}"
 }
@@ -757,6 +778,7 @@ find_postgres_volume() {
 }
 
 backup_postgres_if_present() {
+  [[ -n "$POSTGRES_SERVICE" ]] || return 0
   set_step backing_up_postgres
   local volume timestamp backup_file
   if ! volume="$(find_postgres_volume)"; then
@@ -785,6 +807,7 @@ backup_postgres_if_present() {
 }
 
 run_migrations() {
+  [[ -n "$MIGRATE_SERVICE" ]] || return 0
   set_step running_migrations
   # One-shot prerequisites such as database role/extension provisioning must
   # complete before Alembic, as declared by the migration service's depends_on.

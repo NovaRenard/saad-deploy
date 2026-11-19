@@ -1,0 +1,30 @@
+# .github/workflows/deploy.yml — the gate SAAD Deploy watches.
+# The server deploys the newest *successful push run* of this workflow on the
+# deploy branch, so make it fail whenever the code must not reach production.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ci
+      # Placeholders so Compose interpolation works without server secrets.
+      POSTGRES_PASSWORD: ci
+    steps:
+      - uses: actions/checkout@v4
+      # Replace with the project's own checks (tests, lint, type check).
+      - name: Validate Compose file
+        run: docker compose -f compose.yml config -q
+      - name: Build images
+        run: docker compose -f compose.yml build

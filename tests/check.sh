@@ -10,6 +10,7 @@ SCRIPTS=(
   "$ROOT_DIR/bin/rollback.sh"
   "$ROOT_DIR/bin/restart.sh"
   "$ROOT_DIR/bin/recreate.sh"
+  "$ROOT_DIR/bin/add-app.sh"
 )
 
 bash -n "${SCRIPTS[@]}"
