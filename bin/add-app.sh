@@ -162,6 +162,7 @@ render_contract() {
 # Review the detected service lists, then: systemctl start saad-deploy@${APP_ID_ARG}.service
 
 # Dashboard
+APP_ID=${APP_ID_ARG}
 APP_NAME="${NAME}"
 APP_CATEGORY=${CATEGORY}
 PUBLIC_URL="${PUBLIC}"
