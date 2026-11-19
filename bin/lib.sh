@@ -902,8 +902,8 @@ capture_nginx_state() {
   NGINX_ROLLBACK_NEEDED=0
 }
 
+# shellcheck disable=SC2034 # output_targets is written through a nameref.
 nginx_targets_for_slot() {
-  # shellcheck disable=SC2034 # Written through a nameref for the caller.
   local -n output_targets="$2"
   case "$1" in
     blue) output_targets=("${NGINX_BLUE_TARGETS[@]}") ;;
