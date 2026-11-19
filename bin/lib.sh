@@ -282,15 +282,49 @@ validate_http_url_list() {
   done
 }
 
-validate_upstream_target() {
-  local variable_name="$1"
-  local target="${!variable_name}"
-  local port
-  [[ "$target" =~ ^[A-Za-z0-9._-]+:[0-9]{1,5}$ ]] ||
-    die "${variable_name} must be a safe host:port target"
-  port="${target##*:}"
-  ((10#$port >= 1 && 10#$port <= 65535)) ||
-    die "${variable_name} port must be between 1 and 65535"
+# NGINX_UPSTREAM_FILE, NGINX_BLUE_UPSTREAM and NGINX_GREEN_UPSTREAM are
+# whitespace-separated lists of equal length. Entry i of each list describes
+# one upstream include file and its blue/green targets, so an application with
+# separate API and web upstreams switches all of them in one step.
+validate_nginx_upstreams() {
+  local files=() blue=() green=() index file name target existing allowed_dir resolved
+  split_list NGINX_UPSTREAM_FILE files
+  split_list NGINX_BLUE_UPSTREAM blue
+  split_list NGINX_GREEN_UPSTREAM green
+  ((${#files[@]} > 0)) || die "NGINX_UPSTREAM_FILE must list at least one file"
+  ((${#blue[@]} == ${#files[@]} && ${#green[@]} == ${#files[@]})) ||
+    die "NGINX_UPSTREAM_FILE, NGINX_BLUE_UPSTREAM and NGINX_GREEN_UPSTREAM must have the same number of entries"
+  [[ -d "$SAAD_DEPLOY_NGINX_ALLOWED_DIR" ]] ||
+    die "allowed Nginx directory does not exist: ${SAAD_DEPLOY_NGINX_ALLOWED_DIR}"
+  allowed_dir="$(realpath -m -- "$SAAD_DEPLOY_NGINX_ALLOWED_DIR")"
+
+  NGINX_UPSTREAM_FILES=()
+  NGINX_BLUE_TARGETS=()
+  NGINX_GREEN_TARGETS=()
+  for index in "${!files[@]}"; do
+    file="${files[$index]}"
+    [[ "$file" = /* ]] || die "NGINX_UPSTREAM_FILE must be an absolute path without newlines"
+    resolved="$(realpath -m -- "$file")"
+    case "$resolved" in
+      "$allowed_dir"/*) ;;
+      *) die "NGINX_UPSTREAM_FILE must be inside ${allowed_dir}" ;;
+    esac
+    for existing in "${NGINX_UPSTREAM_FILES[@]}"; do
+      [[ "$existing" != "$resolved" ]] || die "NGINX_UPSTREAM_FILE entries must be distinct"
+    done
+    for name in NGINX_BLUE_UPSTREAM NGINX_GREEN_UPSTREAM; do
+      if [[ $name == NGINX_BLUE_UPSTREAM ]]; then target="${blue[$index]}"; else target="${green[$index]}"; fi
+      [[ "$target" =~ ^[A-Za-z0-9._-]+:[0-9]{1,5}$ ]] ||
+        die "${name} must be a safe host:port target"
+      ((10#${target##*:} >= 1 && 10#${target##*:} <= 65535)) ||
+        die "${name} port must be between 1 and 65535"
+    done
+    [[ "${blue[$index]}" != "${green[$index]}" ]] ||
+      die "NGINX_BLUE_UPSTREAM and NGINX_GREEN_UPSTREAM must differ"
+    NGINX_UPSTREAM_FILES+=("$resolved")
+    NGINX_BLUE_TARGETS+=("${blue[$index]}")
+    NGINX_GREEN_TARGETS+=("${green[$index]}")
+  done
 }
 
 validate_blue_green_config() {
@@ -312,23 +346,7 @@ validate_blue_green_config() {
   [[ "$BLUE_ENV_FILE" != "$GREEN_ENV_FILE" ]] ||
     die "BLUE_ENV_FILE and GREEN_ENV_FILE must differ"
 
-  [[ "$NGINX_UPSTREAM_FILE" = /* && "$NGINX_UPSTREAM_FILE" != *$'\n'* && "$NGINX_UPSTREAM_FILE" != *$'\r'* ]] ||
-    die "NGINX_UPSTREAM_FILE must be an absolute path without newlines"
-  [[ -d "$SAAD_DEPLOY_NGINX_ALLOWED_DIR" ]] ||
-    die "allowed Nginx directory does not exist: ${SAAD_DEPLOY_NGINX_ALLOWED_DIR}"
-  local allowed_dir upstream_file
-  allowed_dir="$(realpath -m -- "$SAAD_DEPLOY_NGINX_ALLOWED_DIR")"
-  upstream_file="$(realpath -m -- "$NGINX_UPSTREAM_FILE")"
-  case "$upstream_file" in
-    "$allowed_dir"/*) ;;
-    *) die "NGINX_UPSTREAM_FILE must be inside ${allowed_dir}" ;;
-  esac
-  NGINX_UPSTREAM_FILE="$upstream_file"
-
-  validate_upstream_target NGINX_BLUE_UPSTREAM
-  validate_upstream_target NGINX_GREEN_UPSTREAM
-  [[ "$NGINX_BLUE_UPSTREAM" != "$NGINX_GREEN_UPSTREAM" ]] ||
-    die "NGINX_BLUE_UPSTREAM and NGINX_GREEN_UPSTREAM must differ"
+  validate_nginx_upstreams
   validate_http_url_list BLUE_HEALTH_URLS
   validate_http_url_list GREEN_HEALTH_URLS
   [[ "$DRAIN_SECONDS" =~ ^[0-9]+$ ]] ||
@@ -872,39 +890,48 @@ blue_green_fast_rollback_available() {
 }
 
 capture_nginx_state() {
-  [[ -f "$NGINX_UPSTREAM_FILE" ]] ||
-    die "NGINX_UPSTREAM_FILE must exist before a blue/green switch: ${NGINX_UPSTREAM_FILE}"
+  local file
+  NGINX_PREVIOUS_CONTENTS=()
+  for file in "${NGINX_UPSTREAM_FILES[@]}"; do
+    [[ -f "$file" ]] ||
+      die "NGINX_UPSTREAM_FILE must exist before a blue/green switch: ${file}"
+    NGINX_PREVIOUS_CONTENTS+=("$(<"$file")")
+  done
   NGINX_PREVIOUS_EXISTS=1
-  NGINX_PREVIOUS_CONTENT="$(<"$NGINX_UPSTREAM_FILE")"
   NGINX_SWITCHED=0
   NGINX_ROLLBACK_NEEDED=0
 }
 
-nginx_target_for_slot() {
+# shellcheck disable=SC2034 # output_targets is written through a nameref.
+nginx_targets_for_slot() {
+  local -n output_targets="$2"
   case "$1" in
-    blue) printf '%s\n' "$NGINX_BLUE_UPSTREAM" ;;
-    green) printf '%s\n' "$NGINX_GREEN_UPSTREAM" ;;
+    blue) output_targets=("${NGINX_BLUE_TARGETS[@]}") ;;
+    green) output_targets=("${NGINX_GREEN_TARGETS[@]}") ;;
     *) die "invalid application slot: $1" ;;
   esac
 }
 
 restore_nginx_upstream_file() {
-  if [[ ${NGINX_PREVIOUS_EXISTS:-0} -eq 1 ]]; then
-    atomic_write "$NGINX_UPSTREAM_FILE" "$NGINX_PREVIOUS_CONTENT"
-  else
-    rm -f "$NGINX_UPSTREAM_FILE"
-  fi
+  [[ ${NGINX_PREVIOUS_EXISTS:-0} -eq 1 ]] || return 0
+  local index status=0
+  for index in "${!NGINX_UPSTREAM_FILES[@]}"; do
+    atomic_write "${NGINX_UPSTREAM_FILES[$index]}" "${NGINX_PREVIOUS_CONTENTS[$index]}" || status=1
+  done
+  return "$status"
 }
 
 switch_nginx_to_slot() {
   local slot="$1"
-  local target
-  target="$(nginx_target_for_slot "$slot")"
+  local targets=() index
+  nginx_targets_for_slot "$slot" targets
   set_step switching_traffic
-  if ! atomic_write "$NGINX_UPSTREAM_FILE" "server ${target};"; then
-    restore_nginx_upstream_file || true
-    return 1
-  fi
+  for index in "${!NGINX_UPSTREAM_FILES[@]}"; do
+    if ! atomic_write "${NGINX_UPSTREAM_FILES[$index]}" "server ${targets[$index]};"; then
+      restore_nginx_upstream_file || true
+      return 1
+    fi
+  done
   if ! nginx -t; then
     restore_nginx_upstream_file || true
     return 1
