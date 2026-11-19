@@ -120,6 +120,8 @@ main() {
   for config_file in "${SAAD_DEPLOY_DEFAULT_CONFIG_DIR}"/*.env; do
     app_id="${config_file##*/}"
     app_id="${app_id%.env}"
+    # Blue/green overlays (<app>.blue.env, <app>.green.env) are not contracts.
+    [[ "$app_id" != *.* ]] || continue
     prune_app_release_images "$app_id"
   done
   prune_build_cache
