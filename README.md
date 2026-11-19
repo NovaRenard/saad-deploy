@@ -104,6 +104,16 @@ DRAIN_SECONDS=30
 WORKER_SERVICES and WORKER_HEALTH_SERVICES may both be empty when an
 application has no workers. DRAIN_SECONDS defaults to 30.
 
+An application with several host Nginx upstreams (for example a separate API
+and web server) lists them in the same order in all three variables. Every
+file is switched in one step and every file is restored on rollback:
+
+```env
+NGINX_UPSTREAM_FILE="/etc/nginx/saad-deploy/example-api.conf /etc/nginx/saad-deploy/example-web.conf"
+NGINX_BLUE_UPSTREAM="127.0.0.1:18080 127.0.0.1:13080"
+NGINX_GREEN_UPSTREAM="127.0.0.1:18081 127.0.0.1:13081"
+```
+
 The stable infrastructure project remains exactly COMPOSE_PROJECT_NAME:
 
 ```text

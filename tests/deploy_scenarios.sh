@@ -580,6 +580,42 @@ test_state_writes_are_atomic() {
   fi
 }
 
+make_multi_upstream_fixture() {
+  make_blue_green_fixture "$1"
+  printf '%s\n' 'server 127.0.0.1:13080;' >"$NGINX_ALLOWED_DIR/web.conf"
+  printf '%s\n' \
+    "NGINX_UPSTREAM_FILE=\"$NGINX_ALLOWED_DIR/upstream.conf $NGINX_ALLOWED_DIR/web.conf\"" \
+    'NGINX_BLUE_UPSTREAM="127.0.0.1:18080 127.0.0.1:13080"' \
+    'NGINX_GREEN_UPSTREAM="127.0.0.1:18081 127.0.0.1:13081"' >>"$CONFIG_DIR/sample.env"
+}
+
+test_blue_green_switches_every_upstream_file() {
+  make_multi_upstream_fixture multi-upstream
+  seed_blue_green_state blue "$OLD_SHA"
+  run_bg_deploy success "$TARGET_SHA"
+  assert_equals green "$(<"$STATE_DIR/active-slot")"
+  assert_equals 'server 127.0.0.1:18081;' "$(<"$NGINX_ALLOWED_DIR/upstream.conf")"
+  assert_equals 'server 127.0.0.1:13081;' "$(<"$NGINX_ALLOWED_DIR/web.conf")"
+}
+
+test_blue_green_failed_switch_restores_every_upstream_file() {
+  make_multi_upstream_fixture multi-upstream-fail
+  seed_blue_green_state blue "$OLD_SHA"
+  if run_bg_deploy nginx_test_fail "$TARGET_SHA"; then fail 'nginx -t failure must fail deployment'; fi
+  assert_equals 'server 127.0.0.1:18080;' "$(<"$NGINX_ALLOWED_DIR/upstream.conf")"
+  assert_equals 'server 127.0.0.1:13080;' "$(<"$NGINX_ALLOWED_DIR/web.conf")"
+  assert_equals blue "$(<"$STATE_DIR/active-slot")"
+}
+
+test_blue_green_validation_rejects_mismatched_upstream_lists() {
+  make_multi_upstream_fixture multi-upstream-mismatch
+  printf '%s\n' 'NGINX_GREEN_UPSTREAM=127.0.0.1:18081' >>"$CONFIG_DIR/sample.env"
+  local output
+  if output="$(run_bg_deploy success "$TARGET_SHA" 2>&1)"; then fail 'mismatched upstream lists must fail'; fi
+  assert_contains "$output" 'must have the same number of entries'
+  assert_missing "$STATE_DIR/current-sha"
+}
+
 run_case() {
   local test_name="$1"
   if [[ -z ${TEST_CASE:-} || ${TEST_CASE} == "$test_name" ]]; then
@@ -616,6 +652,9 @@ run_case test_blue_green_state_write_failure_does_not_promote
 run_case test_blue_green_first_bootstrap_uses_blue_without_guessing_active
 run_case test_blue_green_fast_rollback_uses_existing_slot_without_rebuild
 run_case test_blue_green_validation_rejects_unsafe_upstream
+run_case test_blue_green_switches_every_upstream_file
+run_case test_blue_green_failed_switch_restores_every_upstream_file
+run_case test_blue_green_validation_rejects_mismatched_upstream_lists
 run_case test_blue_green_restart_only_touches_active_slot
 run_case test_blue_green_recreate_only_touches_active_slot
 printf 'All deployment scenario tests passed.\n'

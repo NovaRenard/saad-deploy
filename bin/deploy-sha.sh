@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Privileged helpers may launch this script with UMask=0077. Checked-out
+# application source must stay readable by non-root containers; state files
+# still use their own scoped umask in lib.sh.
+umask 022
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
 usage() {
   printf 'Usage: %s <app-id> [<sha>|--query-ci] [--lock-held] [--source automated|manual|rollback]\n' "${0##*/}" >&2
+}
+
+normalize_application_source_permissions() {
+  # Privileged helpers may run with UMask=0077. Application source must stay
+  # readable by the non-root containers that build images and run migrations.
+  local source_dir="$APP_DIR/app"
+  [[ -d "$source_dir" ]] || return 0
+  find "$source_dir" -type f -exec chmod a+r {} +
 }
 
 main() {
@@ -98,6 +111,7 @@ main() {
 
   authenticated_fetch_and_verify
   checkout_target_sha
+  normalize_application_source_permissions
   export IMAGE_TAG="$TARGET_SHA"
   prepare_compose_args
   validate_compose
