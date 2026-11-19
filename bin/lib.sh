@@ -659,6 +659,45 @@ latest_successful_push_sha() {
   printf '%s\n' "$sha"
 }
 
+# Record what GitHub has next to what the server runs, for the dashboard.
+# Best effort: a failure here never affects the deployment decision.
+record_github_state() {
+  local encoded_workflow response state
+  encoded_workflow="$(printf '%s' "$GITHUB_WORKFLOW" | jq -sRr @uri 2>/dev/null)" || return 0
+  response="$(curl --fail --silent --show-error --max-time 20 \
+    --header 'Accept: application/vnd.github+json' \
+    --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+    --get \
+    --data-urlencode "branch=${DEPLOY_BRANCH}" \
+    --data-urlencode 'event=push' \
+    --data-urlencode 'per_page=20' \
+    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${encoded_workflow}/runs" 2>/dev/null)" || return 0
+  # Commit messages are reduced to their first line and bounded; no URLs with
+  # credentials or other secrets exist in this API response.
+  state="$(printf '%s' "$response" | jq -c \
+    --arg branch "$DEPLOY_BRANCH" \
+    --arg repository "$GITHUB_REPOSITORY" \
+    --arg checked_at "$(now_utc)" \
+    --arg current "${CURRENT_SHA:-}" '
+      def commit: {
+        sha: .head_sha,
+        message: ((.head_commit.message // "") | split("\n")[0] | .[0:200]),
+        committed_at: (.head_commit.timestamp // null),
+        url: .html_url
+      };
+      [.workflow_runs[]? | select(.event == "push" and .head_branch == $branch)] as $runs
+      | {
+          repository: $repository,
+          branch: $branch,
+          checked_at: $checked_at,
+          latest: ($runs[0] | if . == null then null else commit + {status: .status, conclusion: .conclusion} end),
+          deployable: ([$runs[] | select(.conclusion == "success")][0] | if . == null then null else commit end),
+          current: (if $current == "" then null else ([$runs[] | select(.head_sha == $current)][0] | if . == null then {sha: $current} else commit | del(.url) end) end)
+        }' 2>/dev/null)" || return 0
+  [[ "$state" == \{* ]] || return 0
+  atomic_write "$STATE_DIR/github.json" "$state" 2>/dev/null || return 0
+}
+
 authenticated_fetch_and_verify() {
   set_step fetching_git
   local repository_url auth_basic

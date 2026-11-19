@@ -5,6 +5,11 @@ applications. Application-specific policy lives in a root-owned environment file
 at /etc/saad-deploy/<APP_ID>.env. The engine contains no CRM-specific logic and
 never evaluates shell commands supplied by that contract.
 
+Every poll also writes `$STATE_DIR/github.json`: the newest push on the deploy
+branch with its CI status, the newest green (deployable) commit and the commit
+the server runs. The node agent shows it in the dashboard; it is best effort and
+never affects the deployment decision.
+
 **New project?** Follow [docs/PROJECT_STANDARD.md](docs/PROJECT_STANDARD.md):
 a Compose file with healthchecks, a `deploy.yml` workflow, and one
 `bin/add-app.sh` call register any project (CRM, site, bot, service) with

@@ -80,6 +80,7 @@ main() {
 
   if ((query_ci)); then
     set_step querying_github_actions
+    record_github_state || true
     if ! TARGET_SHA="$(latest_successful_push_sha)"; then
       die "could not determine a deployable SHA from GitHub Actions"
     fi
