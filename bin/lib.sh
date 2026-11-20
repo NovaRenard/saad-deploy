@@ -135,6 +135,8 @@ load_config() {
     COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR BUILD_SERVICES APP_SERVICES \
     HEALTH_SERVICES HEALTH_URLS
   POSTGRES_SERVICE="${POSTGRES_SERVICE:-}"
+  # Older contracts spell "no database" as POSTGRES_SERVICE=none.
+  [[ "$POSTGRES_SERVICE" != none ]] || POSTGRES_SERVICE=""
   MIGRATE_SERVICE="${MIGRATE_SERVICE:-}"
   INFRA_SERVICES="${INFRA_SERVICES:-}"
   EXTRA_APP_SERVICES="${EXTRA_APP_SERVICES:-}"
@@ -873,29 +875,31 @@ wait_for_slot_services_healthy() {
   wait_for_services_healthy_from slot "$1" "$2" "$3" "$4"
 }
 
-find_postgres_volume() {
-  local volumes=() volume_output
-  if ! volume_output="$(docker volume ls -q \
-    --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}" \
-    --filter 'label=com.docker.compose.volume=postgres_data')"; then
-    die "could not list Docker volumes by Compose labels"
+postgres_service_running() {
+  # A backup is needed whenever the declared database already runs; only the
+  # very first deployment of a project starts without one. Volume names are
+  # project-specific (postgres_data, oyla-postgres-data, ...), so they are not
+  # used to decide.
+  local container_ids
+  if [[ "$DEPLOY_STRATEGY" == blue_green ]]; then
+    container_ids="$(compose_infra ps -q --status running "$POSTGRES_SERVICE")" ||
+      die "could not list containers for PostgreSQL service: ${POSTGRES_SERVICE}"
+  else
+    container_ids="$(compose ps -q --status running "$POSTGRES_SERVICE")" ||
+      die "could not list containers for PostgreSQL service: ${POSTGRES_SERVICE}"
   fi
-  [[ -n "$volume_output" ]] && mapfile -t volumes <<<"$volume_output"
-  case "${#volumes[@]}" in
-    0) return 0 ;;
-    1) printf '%s\n' "${volumes[0]}" ;;
-    *) die "multiple postgres_data volumes match Compose labels; refusing to choose one" ;;
-  esac
+  [[ -n "$container_ids" ]]
 }
 
 backup_postgres_if_present() {
   [[ -n "$POSTGRES_SERVICE" ]] || return 0
   set_step backing_up_postgres
-  local volume timestamp backup_file
-  if ! volume="$(find_postgres_volume)"; then
-    die "could not resolve a PostgreSQL volume from Compose labels"
+  local timestamp backup_file
+  if ! postgres_service_running; then
+    printf 'saad-deploy: %s is not running yet; skipping the PostgreSQL backup
+' "$POSTGRES_SERVICE" >&2
+    return 0
   fi
-  [[ -n "$volume" ]] || return 0
 
   mkdir -p "$BACKUP_DIR"
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"

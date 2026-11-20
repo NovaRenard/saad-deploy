@@ -690,6 +690,17 @@ test_missing_compose_extra_file_is_rejected() {
   if run_status >/dev/null 2>&1; then fail 'a missing COMPOSE_EXTRA_FILES entry must be rejected'; fi
 }
 
+test_successful_deployment_backs_up_running_database() {
+  make_fixture backup
+  printf '%s
+' "$OLD_SHA" >"$STATE_DIR/current-sha"
+  : >"$FIXTURE/calls.log"
+  run_poll success
+  assert_contains "$(<"$FIXTURE/calls.log")" 'pg_dumpall'
+  compgen -G "$STATE_DIR/backups/sample-postgres-*.sql.gz" >/dev/null || compgen -G "$FIXTURE/backups/sample-postgres-*.sql.gz" >/dev/null ||
+    [[ -n "$(find "$FIXTURE" -name 'sample-postgres-*.sql.gz' -print -quit)" ]] || fail 'a backup file must be written'
+}
+
 run_case() {
   local test_name="$1"
   if [[ -z ${TEST_CASE:-} || ${TEST_CASE} == "$test_name" ]]; then
@@ -712,6 +723,7 @@ run_case test_failed_build_preserves_current_sha
 run_case test_failed_migration_preserves_current_sha
 run_case test_failed_healthcheck_preserves_current_sha
 run_case test_successful_deployment
+run_case test_successful_deployment_backs_up_running_database
 run_case test_state_writes_are_atomic
 run_case test_rollback_records_rollback_source
 run_case test_restart_does_not_write_deployment_status
