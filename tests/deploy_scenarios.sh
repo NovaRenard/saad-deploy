@@ -668,6 +668,28 @@ test_monitor_project_restarts_whole_compose_project() {
   assert_contains "$calls" 'restart'
 }
 
+test_compose_extra_files_are_layered_in_order() {
+  make_fixture extra-files
+  printf 'services: {}
+' >"$FIXTURE/app/compose.tunnel.yml"
+  printf '%s
+' 'COMPOSE_EXTRA_FILES="compose.tunnel.yml"' >>"$CONFIG_DIR/sample.env"
+  printf '%s
+' "$TARGET_SHA" >"$STATE_DIR/current-sha"
+  printf '%s
+' '{"status":"healthy","step":"complete"}' >"$STATE_DIR/status.json"
+  : >"$FIXTURE/calls.log"
+  run_restart success
+  assert_contains "$(<"$FIXTURE/calls.log")" "-f $FIXTURE/app/compose.yml -f $FIXTURE/app/compose.tunnel.yml"
+}
+
+test_missing_compose_extra_file_is_rejected() {
+  make_fixture extra-files-missing
+  printf '%s
+' 'COMPOSE_EXTRA_FILES="missing.yml"' >>"$CONFIG_DIR/sample.env"
+  if run_status >/dev/null 2>&1; then fail 'a missing COMPOSE_EXTRA_FILES entry must be rejected'; fi
+}
+
 run_case() {
   local test_name="$1"
   if [[ -z ${TEST_CASE:-} || ${TEST_CASE} == "$test_name" ]]; then
@@ -681,6 +703,8 @@ run_case test_concurrent_deploy
 run_case test_project_without_database_skips_backup_and_migrations
 run_case test_invalid_category_is_rejected
 run_case test_monitor_project_is_never_deployed
+run_case test_compose_extra_files_are_layered_in_order
+run_case test_missing_compose_extra_file_is_rejected
 run_case test_monitor_project_restarts_whole_compose_project
 run_case test_manual_deploy_waits_for_lock
 run_case test_manual_deploy_keeps_lock_contention_safe

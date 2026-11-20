@@ -85,7 +85,7 @@ load_config() {
   # Parse it without source/eval so config values cannot execute shell code.
   local config_variables=(
     DEPLOY_MODE DEPLOY_STRATEGY GITHUB_REPOSITORY GITHUB_WORKFLOW GITHUB_TOKEN DEPLOY_BRANCH
-    APP_DIR APP_ENV COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR BACKUP_DIR
+    APP_DIR APP_ENV COMPOSE_FILE COMPOSE_EXTRA_FILES COMPOSE_PROJECT_NAME STATE_DIR BACKUP_DIR
     BACKUP_RETENTION_DAYS POSTGRES_SERVICE INFRA_SERVICES BUILD_SERVICES
     MIGRATE_SERVICE APP_SERVICES EXTRA_APP_SERVICES HEALTH_SERVICES
     REQUIRED_EXTERNAL_NETWORKS HEALTH_URLS COMPOSE_PROFILES
@@ -165,6 +165,29 @@ load_config() {
   BACKUP_DIR="$(resolve_path "$BACKUP_DIR")"
   [[ -f "$APP_ENV" ]] || die "APP_ENV does not exist: ${APP_ENV}"
   [[ -f "$COMPOSE_FILE" ]] || die "COMPOSE_FILE does not exist: ${COMPOSE_FILE}"
+  resolve_compose_extra_files
+}
+
+resolve_compose_extra_files() {
+  # Optional override files layered on COMPOSE_FILE, in order (for example a
+  # Cloudflare Tunnel override that binds the proxy to loopback only).
+  local files=() file
+  COMPOSE_EXTRA_FILE_PATHS=()
+  split_list COMPOSE_EXTRA_FILES files
+  for file in "${files[@]}"; do
+    file="$(resolve_path "$file")"
+    [[ -f "$file" ]] || die "COMPOSE_EXTRA_FILES entry does not exist: ${file}"
+    COMPOSE_EXTRA_FILE_PATHS+=("$file")
+  done
+}
+
+compose_file_args() {
+  local -n _compose_file_args_out="$1"
+  local file
+  _compose_file_args_out=(-f "$COMPOSE_FILE")
+  for file in "${COMPOSE_EXTRA_FILE_PATHS[@]}"; do
+    _compose_file_args_out+=(-f "$file")
+  done
 }
 
 validate_dashboard_metadata() {
@@ -195,6 +218,7 @@ load_monitor_config() {
   COMPOSE_FILE="$(resolve_path "$COMPOSE_FILE")"
   STATE_DIR="$(resolve_path "$STATE_DIR")"
   [[ -f "$COMPOSE_FILE" ]] || die "COMPOSE_FILE does not exist: ${COMPOSE_FILE}"
+  resolve_compose_extra_files
   if [[ -n "$APP_ENV" ]]; then
     APP_ENV="$(resolve_path "$APP_ENV")"
     [[ -f "$APP_ENV" ]] || die "APP_ENV does not exist: ${APP_ENV}"
@@ -225,7 +249,9 @@ prepare_compose_args() {
     --project-name "$COMPOSE_PROJECT_NAME"
   )
   [[ -z "$APP_ENV" ]] || COMPOSE_ARGS+=(--env-file "$APP_ENV")
-  COMPOSE_ARGS+=(-f "$COMPOSE_FILE")
+  local file_args=()
+  compose_file_args file_args
+  COMPOSE_ARGS+=("${file_args[@]}")
 
   local profiles=()
   split_list COMPOSE_PROFILES profiles
@@ -241,19 +267,21 @@ compose() {
 
 prepare_blue_green_compose_args() {
   INFRA_COMPOSE_ARGS=("${COMPOSE_ARGS[@]}")
+  local file_args=()
+  compose_file_args file_args
   BLUE_COMPOSE_ARGS=(
     compose
     --project-name "${COMPOSE_PROJECT_NAME}-blue"
     --env-file "$APP_ENV"
     --env-file "$BLUE_ENV_FILE"
-    -f "$COMPOSE_FILE"
+    "${file_args[@]}"
   )
   GREEN_COMPOSE_ARGS=(
     compose
     --project-name "${COMPOSE_PROJECT_NAME}-green"
     --env-file "$APP_ENV"
     --env-file "$GREEN_ENV_FILE"
-    -f "$COMPOSE_FILE"
+    "${file_args[@]}"
   )
 
   local profiles=()
