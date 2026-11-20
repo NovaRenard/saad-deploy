@@ -640,6 +640,34 @@ test_blue_green_validation_rejects_mismatched_upstream_lists() {
   assert_missing "$STATE_DIR/current-sha"
 }
 
+write_monitor_contract() {
+  printf '%s
+'     'DEPLOY_MODE=monitor'     'APP_NAME="Evolution API"'     'APP_CATEGORY=service'     "APP_DIR=$FIXTURE/app"     'COMPOSE_FILE=compose.yml'     'COMPOSE_PROJECT_NAME=deploytest'     "STATE_DIR=$STATE_DIR" >"$CONFIG_DIR/sample.env"
+}
+
+test_monitor_project_is_never_deployed() {
+  make_fixture monitor-deploy
+  write_monitor_contract
+  : >"$FIXTURE/calls.log"
+  if run_poll success 2>"$FIXTURE/stderr"; then fail 'a monitored project must not deploy'; fi
+  assert_contains "$(<"$FIXTURE/stderr")" 'monitored only'
+  [[ "$(<"$FIXTURE/calls.log")" != *"build"* ]] || fail 'a monitored project must not build'
+  assert_missing "$STATE_DIR/status.json"
+  if run_rollback success 2>/dev/null; then fail 'a monitored project must not roll back'; fi
+}
+
+test_monitor_project_restarts_whole_compose_project() {
+  make_fixture monitor-restart
+  write_monitor_contract
+  : >"$FIXTURE/calls.log"
+  run_restart success
+  local calls
+  calls="$(<"$FIXTURE/calls.log")"
+  assert_contains "$calls" 'compose --project-name deploytest -f'
+  [[ "$calls" != *"--env-file"* ]] || fail 'no env file was declared'
+  assert_contains "$calls" 'restart'
+}
+
 run_case() {
   local test_name="$1"
   if [[ -z ${TEST_CASE:-} || ${TEST_CASE} == "$test_name" ]]; then
@@ -652,6 +680,8 @@ run_case test_failed_ci
 run_case test_concurrent_deploy
 run_case test_project_without_database_skips_backup_and_migrations
 run_case test_invalid_category_is_rejected
+run_case test_monitor_project_is_never_deployed
+run_case test_monitor_project_restarts_whole_compose_project
 run_case test_manual_deploy_waits_for_lock
 run_case test_manual_deploy_keeps_lock_contention_safe
 run_case test_failed_build_preserves_current_sha

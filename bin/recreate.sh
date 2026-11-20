@@ -9,6 +9,7 @@ main() {
   (($# == 1)) || { printf 'Usage: %s <app-id>\n' "${0##*/}" >&2; return 2; }
 
   load_config "$1"
+  refuse_monitor_only
   ensure_state_dir
   read_state
   [[ -n "$CURRENT_SHA" ]] || die "no current SHA is available for recreate"

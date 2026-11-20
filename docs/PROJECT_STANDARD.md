@@ -102,3 +102,29 @@ Optional with defaults:
 - [ ] `.env.production` on the server
 - [ ] `add-app.sh <id> …` run once
 - [ ] Project visible in the dashboard under the right category
+
+## Monitored projects (`DEPLOY_MODE=monitor`)
+
+Some things on a server are not built from one of your GitHub repositories:
+third-party images (Evolution API, cloudflared) or a project whose CI is not
+green yet. Register them so the dashboard still shows their containers and
+alerts when they stop:
+
+```env
+DEPLOY_MODE=monitor
+APP_ID=ecoenergy-evolution
+APP_NAME="EcoEnergy WhatsApp (Evolution API)"
+APP_CATEGORY=service
+APP_DIR=/srv/services/evolution
+COMPOSE_FILE=compose.yml
+COMPOSE_PROJECT_NAME=ecoenergy-evolution
+STATE_DIR=/var/lib/ecoenergy-evolution-deploy
+# Optional: APP_ENV for Compose interpolation, APP_SERVICES to limit Restart.
+```
+
+Do not enable `saad-deploy@<id>.timer` for these contracts. Deploy, Apply
+config and Rollback refuse with exit code 64; Restart runs
+`docker compose restart` for the declared services (all when none are
+declared). The dashboard judges a monitored project by its containers. To move
+a project to automated deploys later, replace the contract with a full one and
+enable its timer.

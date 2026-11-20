@@ -53,6 +53,7 @@ main() {
   fi
 
   load_config "$app_id"
+  refuse_monitor_only
   ensure_state_dir
   TARGET_SHA="${target_argument,,}"
   STARTED_AT="$(now_utc)"

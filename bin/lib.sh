@@ -84,7 +84,7 @@ load_config() {
   # The configuration contract is a root-owned KEY=VALUE environment file.
   # Parse it without source/eval so config values cannot execute shell code.
   local config_variables=(
-    DEPLOY_STRATEGY GITHUB_REPOSITORY GITHUB_WORKFLOW GITHUB_TOKEN DEPLOY_BRANCH
+    DEPLOY_MODE DEPLOY_STRATEGY GITHUB_REPOSITORY GITHUB_WORKFLOW GITHUB_TOKEN DEPLOY_BRANCH
     APP_DIR APP_ENV COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR BACKUP_DIR
     BACKUP_RETENTION_DAYS POSTGRES_SERVICE INFRA_SERVICES BUILD_SERVICES
     MIGRATE_SERVICE APP_SERVICES EXTRA_APP_SERVICES HEALTH_SERVICES
@@ -97,6 +97,16 @@ load_config() {
   )
   unset "${config_variables[@]}" 2>/dev/null || true
   load_env_config "$CONFIG_FILE"
+
+  # DEPLOY_MODE=monitor registers a project that is not deployed from GitHub
+  # (third-party images, tunnels, projects whose CI is not green yet). The node
+  # agent reports its containers; only Restart is available.
+  DEPLOY_MODE="${DEPLOY_MODE:-deploy}"
+  case "$DEPLOY_MODE" in
+    deploy) ;;
+    monitor) load_monitor_config; return ;;
+    *) die "DEPLOY_MODE must be deploy or monitor" ;;
+  esac
 
   DEPLOY_STRATEGY="${DEPLOY_STRATEGY:-recreate}"
   case "$DEPLOY_STRATEGY" in
@@ -136,14 +146,7 @@ load_config() {
     GITHUB_REPOSITORY GITHUB_WORKFLOW GITHUB_TOKEN DEPLOY_BRANCH APP_DIR APP_ENV \
     COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR
 
-  # Dashboard metadata. The engine never acts on it; the node agent reports it.
-  APP_NAME="${APP_NAME:-$APP_ID}"
-  APP_CATEGORY="${APP_CATEGORY:-other}"
-  PUBLIC_URL="${PUBLIC_URL:-}"
-  [[ "$APP_CATEGORY" =~ ^(crm|site|bot|service|internal|other)$ ]] ||
-    die "APP_CATEGORY must be one of: crm site bot service internal other"
-  ((${#APP_NAME} <= 120)) || die "APP_NAME must be at most 120 characters"
-  [[ -z "$PUBLIC_URL" || "$PUBLIC_URL" =~ ^https?://[^[:space:]]+$ ]] || die "invalid PUBLIC_URL"
+  validate_dashboard_metadata
 
   [[ "$GITHUB_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "invalid GITHUB_REPOSITORY"
   [[ "$DEPLOY_BRANCH" != *$'\n'* && "$DEPLOY_BRANCH" != *$'\r'* ]] || die "invalid DEPLOY_BRANCH"
@@ -164,6 +167,47 @@ load_config() {
   [[ -f "$COMPOSE_FILE" ]] || die "COMPOSE_FILE does not exist: ${COMPOSE_FILE}"
 }
 
+validate_dashboard_metadata() {
+  # Dashboard metadata. The engine never acts on it; the node agent reports it.
+  APP_NAME="${APP_NAME:-$APP_ID}"
+  APP_CATEGORY="${APP_CATEGORY:-other}"
+  PUBLIC_URL="${PUBLIC_URL:-}"
+  [[ "$APP_CATEGORY" =~ ^(crm|site|bot|service|internal|other)$ ]] ||
+    die "APP_CATEGORY must be one of: crm site bot service internal other"
+  ((${#APP_NAME} <= 120)) || die "APP_NAME must be at most 120 characters"
+  [[ -z "$PUBLIC_URL" || "$PUBLIC_URL" =~ ^https?://[^[:space:]]+$ ]] || die "invalid PUBLIC_URL"
+}
+
+load_monitor_config() {
+  require_nonempty APP_DIR COMPOSE_FILE COMPOSE_PROJECT_NAME STATE_DIR
+  validate_dashboard_metadata
+  [[ "$COMPOSE_PROJECT_NAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "invalid COMPOSE_PROJECT_NAME"
+  [[ -d "$APP_DIR" ]] || die "APP_DIR does not exist: ${APP_DIR}"
+  DEPLOY_STRATEGY=recreate
+  MANUAL_LOCK_WAIT_SECONDS="${MANUAL_LOCK_WAIT_SECONDS:-900}"
+  [[ "$MANUAL_LOCK_WAIT_SECONDS" =~ ^[0-9]+$ ]] ||
+    die "MANUAL_LOCK_WAIT_SECONDS must be a non-negative integer"
+  APP_ENV="${APP_ENV:-}"
+  APP_SERVICES="${APP_SERVICES:-}"
+  COMPOSE_PROFILES="${COMPOSE_PROFILES:-}"
+  # shellcheck disable=SC2034 # Read by prune and build helpers.
+  BUILD_SERVICES=""
+  COMPOSE_FILE="$(resolve_path "$COMPOSE_FILE")"
+  STATE_DIR="$(resolve_path "$STATE_DIR")"
+  [[ -f "$COMPOSE_FILE" ]] || die "COMPOSE_FILE does not exist: ${COMPOSE_FILE}"
+  if [[ -n "$APP_ENV" ]]; then
+    APP_ENV="$(resolve_path "$APP_ENV")"
+    [[ -f "$APP_ENV" ]] || die "APP_ENV does not exist: ${APP_ENV}"
+  fi
+}
+
+refuse_monitor_only() {
+  [[ "${DEPLOY_MODE:-deploy}" == monitor ]] || return 0
+  printf 'saad-deploy: %s is monitored only (DEPLOY_MODE=monitor); it is not deployed from GitHub
+' "$APP_ID" >&2
+  exit 64
+}
+
 split_list() {
   local variable_name="$1"
   local -n output_array="$2"
@@ -179,9 +223,9 @@ prepare_compose_args() {
   COMPOSE_ARGS=(
     compose
     --project-name "$COMPOSE_PROJECT_NAME"
-    --env-file "$APP_ENV"
-    -f "$COMPOSE_FILE"
   )
+  [[ -z "$APP_ENV" ]] || COMPOSE_ARGS+=(--env-file "$APP_ENV")
+  COMPOSE_ARGS+=(-f "$COMPOSE_FILE")
 
   local profiles=()
   split_list COMPOSE_PROFILES profiles

@@ -11,6 +11,15 @@ main() {
   load_config "$1"
   ensure_state_dir
   acquire_lock "$MANUAL_LOCK_WAIT_SECONDS"
+  if [[ "$DEPLOY_MODE" == monitor ]]; then
+    # Monitored projects restart in place: the declared services, or the whole
+    # Compose project when none are declared. Nothing is pulled or rebuilt.
+    local monitored_services=()
+    split_list APP_SERVICES monitored_services
+    prepare_compose_args
+    docker "${COMPOSE_ARGS[@]}" restart "${monitored_services[@]}"
+    return 0
+  fi
   read_state
   [[ -n "$CURRENT_SHA" ]] || die "no current SHA is available for restart"
   validate_sha "$CURRENT_SHA"

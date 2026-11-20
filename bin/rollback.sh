@@ -8,6 +8,7 @@ source "${SCRIPT_DIR}/lib.sh"
 main() {
   (($# == 1)) || { printf 'Usage: %s <app-id>\n' "${0##*/}" >&2; return 2; }
   load_config "$1"
+  refuse_monitor_only
   ensure_state_dir
   acquire_lock "$MANUAL_LOCK_WAIT_SECONDS"
   read_state

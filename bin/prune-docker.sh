@@ -52,6 +52,8 @@ prune_app_release_images() {
   local repository image_ref tag
 
   load_config "$app_id"
+  # Monitored projects have no release images built by saad-deploy.
+  [[ "$DEPLOY_MODE" != monitor ]] || return 0
   prepare_compose_args
   read_state
   is_sha "$CURRENT_SHA" && append_unique "$CURRENT_SHA" keep_shas
